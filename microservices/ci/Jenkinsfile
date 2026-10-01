@@ -1,0 +1,389 @@
+pipeline {
+    parameters {
+        choice(name: 'ARTIFACTORY_TYPE', choices: ['jfrog'], description: 'Select Artifactory Type')
+        choice(name: 'JFROG_ARTIFACTORY_URL', choices: ['artifactory.appzillon.com/cagldocker', 'artifactory.appzillon.com/cagldocker-pt'], description: 'JFrog Artifactory URL')
+        string defaultValue: 'http://192.168.2.6:8009/gk-unified-app', description: '', name: 'GIT_BASE_URL', trim: false
+        string defaultValue: ' ', description: 'Tag to build', name: 'TAG', trim: false
+        choice(name: 'ENV', choices: ['sit', 'uat', 'prod', 'pt'], description: 'Environment')
+        choice(name: 'SOURCE_BRANCH', choices: ['master', 'PROD', 'UAT', 'DEV'], description: 'Source code branch')
+        choice(name: 'PIPELINE_BRANCH', choices: ['dev', 'pt'], description: 'Source code branch')
+        choice(name: 'APPLICATION', choices: ['unifiedapp'], description: 'Select Application')
+        choice(name: 'REPO_NAME', choices: ['apz-microservices-gk-unified-app'], description: 'Select Repository')
+        choice(name: 'MICROSERVICE', choices: ['AppzillonBanking-CAGL', 'AppzillonBanking-CBS', 'AppzillonBanking-KYC', 'AppzillonBanking-LOAN', 'AppzillonBanking-SCHEDULER', 'AppzillonBanking-INCOMEASSESMENT', 'AppzillonBanking-KENDRA', 'AppzillonBanking-COLLECTION', 'AppzillonBanking-DOCUMENT'], description: 'Select Microservice')
+        choice(name: 'DOCKER_APP_NAME', choices: ['apz-ms-appzillonbanking-cagl', 'apz-ms-appzillonbanking-cbs', 'apz-ms-appzillonbanking-kyc', 'apz-ms-appzillonbanking-loan', 'apz-ms-appzillonbanking-scheduler', 'apz-ms-appzillonbanking-income', 'apz-ms-appzillonbanking-kendra', 'apz-ms-appzillonbanking-collection', 'apz-ms-appzillonbanking-document'], description: 'Select Docker name')
+        string name: 'BUILD_MICROSERVICE_TAG', defaultValue: 'v1', description: 'Docker microservice image tag', trim: true
+        choice(name: 'SCANNING_STAGE', choices: ['Yes', 'No'], description: 'Execute the scanning stages?')
+    }
+
+    environment {
+        REGISTRY_URL = getRegistryUrl(env.ARTIFACTORY_TYPE, env.JFROG_ARTIFACTORY_URL)
+        REGISTRY = getRegistry(env.ARTIFACTORY_TYPE, env.JFROG_ARTIFACTORY_URL)
+        REGISTRY_CRED=getRegistryCred(env.ARTIFACTORY_TYPE)
+        DOCKER_IMAGE = ''
+        BREAK_PIPELINE = 'No'
+    }
+
+    agent any
+
+    options {
+       timeout(time: 60, unit: 'MINUTES')  // Abort whole pipeline after 1 hour
+    }
+
+    stages {    
+        stage('Clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+
+        stage('CD Code CheckOut') {
+            steps {
+                sh 'mkdir -p cd_sources'
+                dir("cd_sources")
+                {
+                    git branch: "${PIPELINE_BRANCH}",
+                    credentialsId: 'jenkinscicd',
+                    url: '${GIT_BASE_URL}/pipeline.git'
+                }
+            }
+		}
+
+        stage('Git code Checkout') {
+            steps{
+                sh 'mkdir -p apz-microservices-gk-unified-app'
+                dir("apz-microservices-gk-unified-app")
+                {
+                echo 'Checkout Application project code from the GitLab repo'
+                    checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: '${GIT_BASE_URL}/${REPO_NAME}.git', credentialsId: 'jenkinscicd' ]], branches: [[name: 'refs/tags/${TAG}']]], poll: false
+                    echo "Building $TAG"
+
+            }
+        }
+
+        } 
+
+        stage('Common source checkOut') {
+            steps{
+                sh 'mkdir -p common_microservices'
+                dir("common_microservices")
+                {
+                    git branch: "${SOURCE_BRANCH}",
+                    credentialsId: 'jenkinscicd',
+                    url: '${GIT_BASE_URL}/apz-microservices-common.git'
+                }
+            }
+		}
+        // stage('Dependency Check') {
+        //     when {
+        //         expression {
+        //             'Yes' in SONAR_SCAN
+        //         }
+        //     }
+        //     tools {
+        //         jdk "jdk1.11"
+        //     }
+        //     steps {
+        //         script {
+        //                 def scriptPath = "/var/lib/jenkins/tools/org.jenkinsci.plugins.DependencyCheck.tools.DependencyCheckInstallation/OWASP_Dependency_Check/bin"
+        //                 def reportDir = "${WORKSPACE}/dependency-check-report"
+        //                 def dataDir = "${scriptPath}/data"
+                        
+        //                 def scanDir = "${WORKSPACE}/apz-microservices-gk-unified-app/apz_java_microservices/${MICROSERVICE}"
+        //                 def dependencyCheckCmd = "${scriptPath}/dependency-check.sh --project ${MICROSERVICE}-java-ms-sonarscanner --out ${reportDir} --data ${dataDir} --scan '${scanDir}'"
+                        
+        //                 sh "mkdir -p ${reportDir}"
+        //                 // Run dependency check and generate report
+                    
+        //                 sh dependencyCheckCmd
+        //         }
+        //     }
+        // }
+
+        stage('Building Microservices Lib Jar') {
+            steps {
+                sh '''
+                    export JAVA_HOME=/home/superuser/openjdk-17/jdk-17.0.2
+                    /opt/apache-maven-3.8.5/bin/mvn -version
+                    /opt/apache-maven-3.8.5/bin/mvn clean install -Dmaven.test.skip=true -f $WORKSPACE/common_microservices/apz_java_microservices/"RetailBanking - Lib"/pom.xml -P ${ENV}
+                '''
+            }
+        }
+
+        stage('Building Microservice Jar') {
+            steps {
+                sh '''
+                    export JAVA_HOME=/home/superuser/openjdk-17/jdk-17.0.2
+                    /opt/apache-maven-3.8.5/bin/mvn -version
+                    /opt/apache-maven-3.8.5/bin/mvn clean install -Dmaven.test.skip=true -f $WORKSPACE/${REPO_NAME}/apz_java_microservices/"${MICROSERVICE}"/pom.xml -P ${ENV}
+                '''
+            }
+        }
+
+        stage('Copying Jars to microservices folder') {
+            steps {
+                sh '''
+                    mkdir -p microservices
+                    echo "Copying custom jars to microservices folder"
+                    cp -dRf $WORKSPACE/${REPO_NAME}/apz_java_microservices/"${MICROSERVICE}"/target/*.jar $WORKSPACE/microservices   
+                '''
+            }
+        }
+
+        stage('Moving and compressing files required to build docker image'){
+            steps{
+                script{
+                    sh '''
+                        SOURCE_PATH=$WORKSPACE/microservices
+                        cd $SOURCE_PATH
+                                                
+                        if [ "$APPLICATION" = "unifiedapp" ] && { [ "$MICROSERVICE" = "AppzillonBanking-LOAN" ] || [ "$MICROSERVICE" = "AppzillonBanking-DOCUMENT" ]; }; then
+                            cp -r "$WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/reports" $SOURCE_PATH
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/Dockerfile $SOURCE_PATH
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/glowroot-0.14.0-dist.zip $SOURCE_PATH
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/config.json $SOURCE_PATH
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/admin.json $SOURCE_PATH
+                        
+                        elif [ ${APPLICATION} = "unifiedapp" ]; then
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/Dockerfile $SOURCE_PATH
+                        fi
+                        tar -czvf ${DOCKER_APP_NAME}-docker.tar.gz *
+                    '''
+                }
+            }
+        }
+
+        stage('Remove Existing Docker Image') {
+            steps {
+                script {
+                    echo 'Removing the existing Docker image'
+                    sh "docker rmi -f ${REGISTRY}/${DOCKER_APP_NAME}:${BUILD_MICROSERVICE_TAG}"
+                }
+            }
+        }
+
+        stage('Building Docker image'){
+            steps{
+                script{
+                    sh '''
+                        SOURCE_PATH=$WORKSPACE/microservices
+                        docker build -t ${REGISTRY}/${DOCKER_APP_NAME}:${BUILD_MICROSERVICE_TAG} --build-arg PROFILE=${ENV} -f ${SOURCE_PATH}/Dockerfile ${SOURCE_PATH}
+                    '''
+                }
+            }
+        }        
+
+        stage ('Artifactory Specification') {
+            steps {
+                rtServer (
+                    id: "Artifactory",
+                    url: 'https://artifactory.appzillon.com/artifactory/',
+                    credentialsId: 'jfrog-push-cred',
+                    bypassProxy: true,
+                    timeout: 300
+                )
+            }
+        }
+        
+        /*stage('Check for High and Critical Vulnerabilities in the Docker image') {
+            when {
+                expression { BREAK_PIPELINE == 'Yes' }
+            }
+            steps {
+                script {
+                    echo "Checking for high and critical vulnerabilities in the Docker image"
+                    trivyExitCode = sh(script: '''
+                        BUILD=${REGISTRY}/${DOCKER_APP_NAME}:${BUILD_MICROSERVICE_TAG}
+                        docker run -v /var/run/docker.sock:/var/run/docker.sock -v /home/jenkins/.cache/trivy:/root/.cache/trivy aquasec/trivy image --skip-db-update --skip-java-db-update --timeout 20m --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL --scanners vuln $BUILD
+                    ''', returnStatus: true)
+                    if (trivyExitCode != 0) {
+                        error "High or critical vulnerabilities found in the Docker image. Pipeline has been aborted."
+                    } 
+                    else {
+                        echo "No high or critical vulnerabilities have been found in the Docker image. Continuing with the build."
+                    }
+                }
+            }
+        }*/
+
+        stage('Push Microservice Image') {
+            steps{
+                script {
+                        docker.withRegistry(REGISTRY_URL, REGISTRY_CRED) {
+                        sh 'docker push ${REGISTRY}/${DOCKER_APP_NAME}:${BUILD_MICROSERVICE_TAG}'
+                    }
+                }
+            }
+        }
+
+        stage('Moving and compressing helm chart and config map') {
+            steps {
+                script {
+                    echo 'Copy required files to the cd folder'
+                    sh '''
+                        SOURCE_PATH=$WORKSPACE/cd_sources/microservices/cd/${APPLICATION}/${DOCKER_APP_NAME}
+                        HELM_PATH=$WORKSPACE/cd_sources/microservices/cd/${APPLICATION}
+                        cd $SOURCE_PATH
+                        mkdir properties
+                        mkdir resources
+                        
+                        if [ ${APPLICATION} = "unifiedapp" ]; then
+                            cp -r $WORKSPACE/${REPO_NAME}/dependency/${MICROSERVICE}/properties/* $SOURCE_PATH/properties
+                            cp -r $WORKSPACE/common_microservices/dependency/unified/properties/* $SOURCE_PATH/properties
+                            cp -r $WORKSPACE/common_microservices/dependency/unified/resources/* $SOURCE_PATH/resources
+                        fi
+                        
+                        cd $HELM_PATH
+                        tar -czvf ${DOCKER_APP_NAME}.tar.gz ${DOCKER_APP_NAME}
+                    '''
+                }
+            }
+        }
+
+        stage('Uploading the helm chart and config map into JFrog repo') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE/cd_sources/microservices/cd/${APPLICATION}"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*.tar.gz",
+                                    "target": "${targetRepository}/${REPO_NAME}/${MICROSERVICE}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }
+
+        /*stage('Uploading the files required to build docker image into JFrog repo') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE/microservices"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*.tar.gz",
+                                    "target": "${targetRepository}/${REPO_NAME}/${MICROSERVICE}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }*/
+
+        stage('Evaluate Scan Conditions') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' }
+            }
+            steps {
+                script {
+                    def hourIST = sh(script: "TZ='Asia/Kolkata' date +%H", returnStdout: true).trim().toInteger()
+                    def currentTime = sh(script: "TZ='Asia/Kolkata' date", returnStdout: true).trim()
+
+                    if (hourIST >= 20 || hourIST < 10) {
+                        echo "Within allowed scan time (8 PM to 10 AM IST). Proceeding with scan. Current time: ${currentTime}"
+                        env.ALLOW_SCAN = 'true'
+                    } else {
+                        echo "Outside allowed scan time (8 PM to 10 AM IST). Skipping dependency and sonar scan stage. Current time: ${currentTime}"
+                        env.ALLOW_SCAN = 'false'
+                    }
+                }
+            }
+        }
+
+        stage('depscan-track') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' && env.ALLOW_SCAN == 'true' }
+            }
+            tools {
+                nodejs 'nodejs_22.21.1'
+            }            
+            steps{
+                sh 'FETCH_LICENSE=true /home/jenkins/.nvm/versions/node/v22.21.1/bin/cdxgen -t java $WORKSPACE/${REPO_NAME}/apz_java_microservices/"${MICROSERVICE}"/target/*.jar --print --server-url=http://192.168.2.43:8082 --api-key=odt_tSo4oREdYNRrBx8TBpEPZ8bQdm1yTCGM --parent-project-id=7ea41c8f-d28d-4965-9eb2-b5de7f6dc502 --project-classifier=Application --project-name=CAGL_${MICROSERVICE}_${ENV}'
+            }
+        }        
+
+        stage ('Scan Docker Image') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' && env.ALLOW_SCAN == 'true' }
+            }
+            steps {
+                sh '''
+                    BUILD=${REGISTRY}/${DOCKER_APP_NAME}:${BUILD_MICROSERVICE_TAG}
+                    REPORT=$(echo ${DOCKER_APP_NAME} | sed 's/apz/cagl/g')
+                    docker run -v /var/run/docker.sock:/var/run/docker.sock -v /home/jenkins/.cache/trivy:/root/.cache/trivy aquasec/trivy image --skip-db-update --skip-java-db-update --timeout 20m --ignore-unfixed --scanners vuln $BUILD |tee $REPORT-vulnerabilities.md
+                    
+                    echo "Get the current date"
+                    DATE=$(date)
+                    echo $DATE
+                    
+                    echo "Prepend the date to the trivy report"
+                    sed -i "1s/^/Report generated at: ${DATE}\\n/" $REPORT-vulnerabilities.md
+                '''
+            }
+        }
+
+        /*stage('Uploading the Trivy Report') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*-vulnerabilities.md",
+                                    "target": "${targetRepository}/${REPO_NAME}/${MICROSERVICE}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }*/        
+    }
+     post { 
+        always { 
+            cleanWs()
+        }
+    }
+}
+
+def getRegistryUrl(artifactory, JfrogArtifactoryUrl) {
+    if ("jfrog".equals(artifactory)) {
+        return "https://" + JfrogArtifactoryUrl;
+    } else if ("harbor".equals(artifactory)) {
+        return "https://harbor-platform.apzplatforms.com";
+    } else {
+        return "https://artifactory.appzillon.com:443";
+    }
+}
+
+def getRegistry(artifactory, JfrogArtifactoryUrl) {
+    if ("jfrog".equals(artifactory)) {
+        return JfrogArtifactoryUrl;
+    } else if ("harbor".equals(artifactory)) {
+        return "harbor-platform.apzplatforms.com/appzillon-develop";
+    } else {
+        return "artifactory.appzillon.com:443/docker-dev-local";
+    }
+}
+
+def getRegistryCred(artifactory) {
+    if("jfrog".equals(artifactory)) {
+        return "jfrog-push-cred";
+    } else if ("harbor".equals(artifactory)) {
+        return "harbor-creds";
+    } else {
+        return "jfrog-creds";
+    }
+}
