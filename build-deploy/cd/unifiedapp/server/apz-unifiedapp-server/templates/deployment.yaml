@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apz-unifiedapp-server.fullname" . }}
+  labels:
+    {{- include "apz-unifiedapp-server.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "apz-unifiedapp-server.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "apz-unifiedapp-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 10 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.containerPort }}
+              protocol: {{ .Values.ports.protocol }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metricsPort }}
+              protocol: {{ .Values.ports.protocol }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "30"]
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.liveness.port }}
+            periodSeconds: {{ .Values.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.readiness.port }}
+            periodSeconds: {{ .Values.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.readiness.timeoutSeconds }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.startup.port }}
+            failureThreshold: {{ .Values.startup.failureThreshold }}
+            periodSeconds: {{ .Values.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.startup.timeoutSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+          env:
+          - name: JAVA_AGENT_PORT
+            value: "{{ .Values.ports.metricsPort }}"
+          - name: JAVA_OPTS
+            value: "-XX:+UseG1GC -XX:+UseStringDeduplication -Xms750m -Xmx4500m{{ if .Values.glowroot.enabled }} -javaagent:/opt/glowroot/glowroot.jar{{ end }}"
+          - name: DB_URL_APPZILLONCB
+            valueFrom:
+              configMapKeyRef:
+                name: {{ lower .Values.secretAppTag }}-server-db-conf
+                key: dburlappzilloncb
+          - name: DB_URL_GRAMEENKOOTA
+            valueFrom:
+              configMapKeyRef:
+                name: {{ lower .Values.secretAppTag }}-server-db-conf
+                key: dburlgrameenkoota
+          - name: DB_DRIVER
+            valueFrom:
+              configMapKeyRef:
+                name: {{ lower .Values.secretAppTag }}-server-db-conf
+                key: driverClassName
+          - name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: {{ lower .Values.secretAppTag }}-db-secret
+          - name: DB_PWD
+            valueFrom:
+              secretKeyRef:
+                key: passwd
+                name: {{ lower .Values.secretAppTag }}-db-secret
+          volumeMounts:
+            {{- $envMountPath  := .Values.envMountPath -}}
+            {{- $serverWarName  := .Values.serverWarName -}}
+            {{- range $mounts := .Values.mounts -}}
+            {{- range $appid := $mounts.appid }}
+            - name: {{ lower $appid }}-app
+              mountPath: {{ $envMountPath }}/{{ $serverWarName }}/{{ title $appid }}
+              readOnly: true
+            - name: {{ lower $appid }}-app-spring
+              mountPath: {{ $envMountPath }}/{{ $serverWarName }}/{{ title $appid }}/META-INF/spring
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            - name: app-commons
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.serverWarName }}/commons
+              readOnly: true
+            - name: meta-data
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.serverWarName }}/META-INF
+              readOnly: true
+            - name: meta-spring
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.serverWarName }}/META-INF/spring
+              readOnly: true
+            - name: upload-path
+              mountPath: {{ .Values.uploadPath }}
+            {{- if .Values.reports.enabled }}
+            - name: report-path
+              mountPath: {{ .Values.reports.path }}
+            {{- end }}
+            - name: custom-property
+              mountPath: {{ .Values.volumeMounts.configPath }}/properties/custom
+              readOnly: true
+
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      volumes:
+        {{- range $mounts := .Values.mounts -}}
+        {{- range $appid := $mounts.appid }}
+        - name: {{ lower $appid }}-app
+          configMap:
+            name: {{ lower $appid }}-server-app
+        - name: {{ lower $appid }}-app-spring
+          configMap:
+            name: {{ lower $appid }}-server-app-spring
+        {{- end }}
+        {{- end }}
+        - name: app-commons
+          secret:
+            secretName: {{ lower .Values.secretAppTag }}-private-pem
+        - name: meta-data
+          configMap:
+            name: {{ lower .Values.appID }}-server-meta
+        - name: meta-spring
+          configMap:
+            name: {{ lower .Values.appID }}-server-meta-spring
+        - name: upload-path
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvcUploadName }}
+        {{- if .Values.reports.enabled }}
+        - name: report-path
+          persistentVolumeClaim:
+            claimName: {{ .Values.reports.pvcReportsName }}
+        {{- end }}
+        - name: custom-property
+          configMap:
+            name: {{ lower .Values.serverWarName }}-custom-configmap

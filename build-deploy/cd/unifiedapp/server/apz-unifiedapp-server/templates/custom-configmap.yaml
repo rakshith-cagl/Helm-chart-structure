@@ -1,0 +1,7 @@
+{{- $warName := .Values.serverWarName -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ lower $warName }}-custom-configmap
+data:
+  {{ ($.Files.Glob (printf "Properties/custom/*")).AsConfig | nindent 2 }}

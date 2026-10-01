@@ -1,0 +1,225 @@
+pipeline {
+    parameters {
+        choice(name: 'ENV', choices: ['SIT', 'SIT_MOB', 'TEST', 'CLOUD', 'CLOUD_HTTPS', 'LOCAL'], description: 'Environment')
+        choice(name: 'BUILD_MODE', choices: ['DEBUG', 'RELEASE'], description: '')
+        choice(name: 'SOURCE_BRANCH', choices: ['master', 'main'], description: 'Source code branch')   
+        string defaultValue: 'V1.0.0', description: 'Tag to build', name: 'TAG', trim: false             
+        string defaultValue: 'var/lib/jenkins/CAGL/logs', description: '', name: 'LOG_PATH', trim: false
+        string defaultValue: 'https://caglunifieddev.grameenkoota.in/AppzillonServer/Appzillon', description: 'Server URL for Android APK', name: 'APKSERVERURL', trim: false
+        choice(name: 'DEP_SCAN', choices: ['Yes', 'No'], description: 'Trigger Dependency track scan?')
+    }
+
+    agent any
+    tools {
+        maven 'Maven 3.8.5'
+        jdk 'jdk8'
+        nodejs 'nodejs_17.9'
+        ant 'Ant 1.10.9'
+    }
+    options {
+       timeout(time: 60, unit: 'MINUTES')  // ⏳ Abort whole pipeline after 1 hour
+   }
+    
+    stages {
+        stage('clean workspace'){
+		    steps{
+                cleanWs()
+			}
+		}
+
+        stage('Print Variables') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        echo 'Print Variables stage : Linux'
+                        echo "Java Path : $PATH \n Maven Path : $M2_HOME \n Jenkins code Workspace : $WORKSPACE \n jenkins tool workspace : ${JENKINS_HOME}"
+                    } else {
+                        bat 'echo "Print Variables stage : Windows"'
+                        bat 'echo "Java Path : " %PATH% & echo "Maven Path : "%M2_HOME% & echo "Jenkins code Workspace : "%WORKSPACE%'
+                    }
+
+                }
+            }
+        }
+
+        stage('Base App CheckOut') {
+            steps {
+                    checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: 'http://192.168.2.6:8009/gk-unified-app/apz-apps-gk-unified.git', credentialsId: 'jenkinscicd' ]], branches: [[name: 'refs/tags/${TAG}']]], poll: false
+                    echo "Building $TAG"
+            }
+        }
+
+        stage('Platform code CheckOut') {
+            steps {
+                sh 'mkdir -p appzillon_sources'
+                dir("appzillon_sources") {
+                    git branch: "${SOURCE_BRANCH}",
+                    credentialsId: 'jenkinscicd',
+                    url: 'http://192.168.2.6:8009/gk-unified-app/common-ci.git'
+                }
+                sh 'cp -r $WORKSPACE' + '"/apz_app_sources/MicroApp" $WORKSPACE' + '"/apz_app_sources/UnifiedApp/"' 
+            }
+        }
+
+        stage ('APK - Property file update') {
+            steps {
+                sh '''
+                        BASE_APP_NAME="UnifiedApp"
+                        APZILLON_BUILD_PATH="$WORKSPACE"
+                        BUILD_APP_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_Apps.json"
+                        BUILD_MODE=$BUILD_MODE
+
+                        JSON_GEN_FILE=$WORKSPACE/apz_app_sources/Properties.json
+
+                        echo "Before updation of the file content :"
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            echo "Updating properties.json file  details"
+                            sed -i 's#"BaseAppName": "[^"]*"#"BaseAppName": "'$BASE_APP_NAME'"#' $JSON_GEN_FILE
+                            sed -i 's#"AppzillonBuildPath": "[^"]*"#"AppzillonBuildPath": "'$APZILLON_BUILD_PATH'"#' $JSON_GEN_FILE
+                            sed -i 's#"BuildAppPath": "[^"]*"#"BuildAppPath": "'$BUILD_APP_PATH'"#' $JSON_GEN_FILE
+                            sed -i 's#"ServerDebugLevel": "[^"]*"#"ServerDebugLevel": "'$BUILD_MODE'"#' $JSON_GEN_FILE
+                            
+                            echo "Updated File content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                        SERVERBASEAPPS="[{'name':'UnifiedApp','appId':'APZRMB'}]"
+                        cd $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/lib \n \
+                        java -jar jsonGenerator-0.0.1.jar $WORKSPACE/apz_app_sources $ENV $BUILD_MODE "APK" $SERVERBASEAPPS $WORKSPACE
+                
+                    '''
+
+                sh '''
+                        echo "Updating BuildParams_Apps.json"
+                        BUILD_FOLDER="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/"
+                        APPS_FOLDER="$WORKSPACE"
+                        JSON_GEN_FILE=$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_Apps.json
+                        echo "Before updation of the BuildParams_Apps.json file content : "
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            sed -i \'s#"buildfolder": "[^"]*"#"buildfolder": "\'$BUILD_FOLDER\'"#\' $JSON_GEN_FILE
+                            sed -i 's|"%APPS_FOLDER%|"'$APPS_FOLDER'|g' $JSON_GEN_FILE
+                            sed -i \'s#"serverurl": "[^"]*"#"serverurl": "\'$APKSERVERURL\'"#\' $JSON_GEN_FILE
+                            sed -i '/"Env"/c\\  \"name": \"'$ENV'\",' $JSON_GEN_FILE
+                            sed -i '/"buildmode"/c\\    \"buildmode": \"'$BUILD_MODE'\",' $JSON_GEN_FILE
+
+                            echo "Updated BuildParams_Apps.json file content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                    '''
+                            
+                sh '''
+                        echo "Updating BuildParams_CI.json"
+                        CUSTOM_WIDGET_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources"
+                        THEME_MANAGER_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources"
+
+                        JSON_GEN_FILE=$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_CI.json
+
+                        echo "Before updation of the BuildParams_CI.json file content : "
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            sed -i \'s#"customwidgetspath": "[^"]*"#"customwidgetspath": "\'$CUSTOM_WIDGET_PATH\'"#\' $JSON_GEN_FILE
+                            sed -i \'s#"thememanagerpath": "[^"]*"#"thememanagerpath": "\'$THEME_MANAGER_PATH\'"#\' $JSON_GEN_FILE
+
+                            echo "Updated BuildParamas_CI.json file content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                    '''	
+            }   
+        }
+
+        stage ('APK Generation') {
+            steps {
+                script{
+                    if(isUnix()){
+                        echo 'Copy latest theme'
+                        sh 'cp -a $WORKSPACE/apz_app_sources/Theme/* $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources/ThemeManager/thememanager/themes'
+                        sh 'cp -a $WORKSPACE/apz_app_sources/Fonts/* $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources/ThemeManager/thememanager/fonts'
+
+                            
+                        echo 'Build stage : Linux'
+                        sh 'cd $WORKSPACE' + '"/appzillon_sources/apz_ci_config/Appzillon/lib" && java -jar appzillonstudio-commandbuild-ci.jar $WORKSPACE'+'"/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences"'
+                    }
+                    else{
+                        
+                    }
+                }
+            }      
+        }
+        
+
+        
+        stage ('Artifactory Specification') {
+            steps {
+                rtServer (
+                    id: "Artifactory",
+                    url: 'https://artifactory.appzillon.com/artifactory/',
+                    credentialsId: 'jfrog-push-cred',
+                    bypassProxy: true,
+                    timeout: 300
+                )
+            }
+        }
+
+        stage('Uploading APK into JFrog repo') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE/bin/Kotlin"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*.apk",
+                                    "target": "${targetRepository}/APK/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }
+        stage('Evaluate Scan Conditions') {
+            when {
+                expression { return params.DEP_SCAN == 'Yes' }
+            }
+            steps {
+                script {
+                    def hourIST = sh(script: "TZ='Asia/Kolkata' date +%H", returnStdout: true).trim().toInteger()
+                    if (hourIST >= 20 || hourIST < 10) {
+                        echo "Within allowed scan time (8 PM to 10 AM IST). Proceeding with scan..."
+                        env.ALLOW_SCAN = 'true'
+                    } else {
+                        echo "Outside allowed scan time. Skipping scan steps. Current IST hour: ${hourIST}"
+                        env.ALLOW_SCAN = 'false'
+                    }
+                }
+            }
+        }
+
+        stage('depscan-track') {
+            when {
+                expression { return params.DEP_SCAN == 'Yes' && env.ALLOW_SCAN == 'true' }
+            }
+            tools {
+                nodejs 'nodejs_22.21.1'
+            }
+            steps{
+               sh 'export PATH=\$PATH:/home/jenkins/.local/bin'
+               sh '/home/jenkins/.nvm/versions/node/v22.21.1/bin/cdxgen -t apk -i "$WORKSPACE/bin/Kotlin/*.apk" --print --server-url=http://192.168.2.43:8080 --api-key=odt_tSo4oREdYNRrBx8TBpEPZ8bQdm1yTCGM --parent-project-id=7ea41c8f-d28d-4965-9eb2-b5de7f6dc502 --project-version=3.37.0 --project-classifier=Application --project-name=CAGL_APK_${ENV}'
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}

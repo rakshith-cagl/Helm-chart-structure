@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apz-unifiedapp-web.fullname" . }}
+  labels:
+    {{- include "apz-unifiedapp-web.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "apz-unifiedapp-web.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "apz-unifiedapp-web.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 10 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.containerPort }}
+              protocol: {{ .Values.ports.protocol }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metricsPort }}
+              protocol: {{ .Values.ports.protocol }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "30"]
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.liveness.port }}
+            periodSeconds: {{ .Values.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.readiness.port }}
+            periodSeconds: {{ .Values.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.readiness.timeoutSeconds }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/health
+              port: {{ .Values.startup.port }}
+            failureThreshold: {{ .Values.startup.failureThreshold }}
+            periodSeconds: {{ .Values.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.startup.timeoutSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+          - name: JAVA_AGENT_PORT
+            value: "{{ .Values.ports.metricsPort }}"
+          - name: JAVA_OPTS
+            value: "-XX:+UseG1GC -XX:+UseStringDeduplication -Xms750m -Xmx3000m"
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+          volumeMounts:
+            - name: log4j
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.appId }}/logback.xml
+              subPath: logback.xml
+              readOnly: true
+            - name: containerprops
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.appId }}/containerprops.properties
+              subPath: containerprops.properties
+              readOnly: true
+            - name: payload-encryption-secret
+              mountPath: {{ .Values.envMountPath }}/{{ .Values.appId }}/public.pem
+              subPath: public.pem
+              readOnly: true
+            - name: usersettings-path
+              mountPath: {{ .Values.usersettingsPath }}
+
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      volumes:
+        - name: log4j
+          configMap:
+            name: {{ lower .Values.appId }}-log-map
+        - name: containerprops
+          configMap:
+            name: {{ lower .Values.appId }}-app-configmap
+        - name: payload-encryption-secret
+          secret:
+            secretName: {{ lower .Values.appId }}-public-pem
+        - name: usersettings-path
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvcUserSettingsName }}

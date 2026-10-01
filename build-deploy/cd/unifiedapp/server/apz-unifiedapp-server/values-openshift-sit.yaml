@@ -1,0 +1,163 @@
+# Default values for apz-unifiedapp-server.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: image-registry.openshift-image-registry.svc:5000/unifieddev/apz-unifiedapp-server
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "v1"
+
+imagePullSecrets:
+ - name: default-dockercfg-vr4nb
+nameOverride: ""
+fullnameOverride: "apz-unifiedapp-server"
+
+serviceAccount: 
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "default"
+
+podAnnotations:
+  prometheus.io/port: "8871"
+  prometheus.io/scrape: "true"
+
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+
+securityContext:
+  readOnlyRootFilesystem: false
+  runAsUser: 1000
+  privileged: false
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop:
+    - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  annotations:
+    haproxy.router.openshift.io/balance: roundrobin
+    haproxy.router.openshift.io/disable_cookies: 'true'
+    haproxy.router.openshift.io/timeout: 300s
+  # kubernetes.io/ingress.class: nginx
+  #   kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: apz-unifiedapp-server-unifieddev.apps.drprunificls.corp.grameenkoota.org 
+      paths: 
+        - /AppzillonServer/Appzillon
+  tls:
+    - secretName: common-tls-secret-server
+      hosts:
+        - apz-unifiedapp-server-unifieddev.apps.drprunificls.corp.grameenkoota.org 
+
+
+mounts:
+  - appid:
+      - APZCBO
+
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+   limits:
+     cpu: 4000m
+     memory: 6000Mi
+   requests:
+     cpu: 1500m
+     memory: 4000Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector:
+  env: sit
+
+tolerations: []
+
+affinity: {}
+
+volumeMounts:
+  configPath: /config
+
+# default values
+
+ports:
+  containerPort: 8080
+  protocol: TCP
+  metricsPort: 8871
+
+liveness:
+  port: http
+  periodSeconds: 300
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+readiness:
+  port: http
+  periodSeconds: 300
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+startup:
+  port: http
+  failureThreshold: 30
+  periodSeconds: 10
+  timeoutSeconds: 2
+
+terminationGracePeriodSeconds: 60
+
+glowroot:
+  enabled: false
+
+nameSpace: unifieddev
+contextPath: /AppzillonServer/Appzillon
+secretAppTag: common
+envMountPath: /opt/jws/tomcat/lib
+serverWarName: AppzillonServer
+appID: APZCBO
+uploadPath: /var/app_volume/uploads
+pvcUploadName: nfs-uploadpvc
+dbsslMode:
+  enabled: false
+reports:
+  enabled: true 
+  path: /var/app_volume/reports
+  pvcReportsName: nfs-reportspvc
+
+AppzillonServer: #Server War Name
+  dbPasswd: "V2VsY29tZUAxMjM="
+  dbUsername: "Y2FnbA=="
+  extCliJks: ""
+  extsecret: ""
+  privatepem: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUNkUUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQWw4d2dnSmJBZ0VBQW9HQkFNK0t2d0hRY2N1Q2p6TlgKa1BjenJTVzhQZ2FmeEJIc3M3ZGx4M0VKVG93Z0tNdUhkQVJNREdSbXlJZFJZTTkvT2FqYzEwWUlTcHZSUFlISQpleWF3b3ZwbVJ6dzFNQnRkUHJDWklmVzBjeTZIZzVzYnh1SVEzR2xqc2pJdUxyY0JnL3dHVXlqSzRDamxwNG5aCmZ0ME40QVNRNFdEYkN3MVZPdWZNazJFQ3h6cFhBZ01CQUFFQ2dZQm5XRldJbDcweWM0N1BLQmw5bnZQblNIY3kKWVRnSEhQRFlzQXZDRTdwVE9HaFlBTmtha3F2UkN3VnJySEFpb3QyWlltNm41dFVRQmY4MHN4bnZ5Q0UrM0JMVgpuQ3Rid0VjUjhoVTVscS9zTlVmSVQ3MWhZandqbCtwQmlIZm9FcFVQR2crR2xoZzVnWVpHZEVoelh1SnhPa1FvCnNjV05QU0FQMDdWZ2pEcCswUUpCQVA4Nnc3eEdxZldiUkhVVGNVL3lZTFd6MkJ0N2hEZ2tGUUo3TjJCRzBqNzQKT3VuZGR0YjZKT2x4d3ZGM1VLVkdUam1ZS3ByK2JvTVV6VVQvblJqWTRUc0NRUURRS3lFeml1S1Mxd0d5VVJyQwpGOElQRis5ZnM5eittTy9iMzdDR3NuZS9jajhLRFNzN24zcnhQcnhUMXBuY0F1ZytIQlVWZDR5OTNrVnM4WG1BCjBqbVZBa0JaNkN0M01UVkJyWFpKLzVWVTRqNnJBelZIU1JWa2FXRjFSRTVYZmRzbUQyOUJYcUEwVGwyZVZsS2oKbUxJeDVqZzhGWnc4aVJBSTROVUdUenpadWR4dEFrQVozK0tHbDVMR0ViZUNSSmFBM1pjZmJTZ3h5eGVEQmR0NgpodmxZSk1MQnB4K3l6aVE3aXYwckUxTXhVSkZiU1hrNGp5RUh4QTVZWTFKWjBrSDZBeWRwQWtBVENna0JuZEFDClBlS1d0SFlSaERHdTNZNGIzNVlkNG1HZXhpblMvZVIxSjZXakU5SXdvei9rQ2hzOTNJTTFid3lPaGpuKy9LTC8KL2pDYTJQWnVrQmV3Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K"
+  registrysecret: "ewogICAgICAgICJhdXRocyI6IHsKICAgICAgICAgICAgICAgICJhcnRpZmFjdG9yeS5hcHB6aWxsb24uY29tIjogewogICAgICAgICAgICAgICAgICAgICAgICAiYXV0aCI6ICJZMkZuYkRwek0wTjFjak5rUUhWM0l5WTFNdz09IgogICAgICAgICAgICAgICAgfQogICAgICAgIH0KfQo="
+  tlsCrt: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUc5ekNDQmQrZ0F3SUJBZ0lRRC9yRTE1LzVyUGdmZVR1NkRBbDFZVEFOQmdrcWhraUc5dzBCQVFzRkFEQloKTVFzd0NRWURWUVFHRXdKVlV6RVZNQk1HQTFVRUNoTU1SR2xuYVVObGNuUWdTVzVqTVRNd01RWURWUVFERXlwRQphV2RwUTJWeWRDQkhiRzlpWVd3Z1J6SWdWRXhUSUZKVFFTQlRTRUV5TlRZZ01qQXlNQ0JEUVRFd0hoY05Nak13Ck9ESXlNREF3TURBd1doY05NalF3T1RFM01qTTFPVFU1V2pCNE1Rc3dDUVlEVlFRR0V3SkpUakVTTUJBR0ExVUUKQ0JNSlMyRnlibUYwWVd0aE1SSXdFQVlEVlFRSEV3bENaVzVuWVd4MWNuVXhKVEFqQmdOVkJBb1RIRU55WldScApkRUZqWTJWemN5QkhjbUZ0WldWdUlFeHBiV2wwWldReEdqQVlCZ05WQkFNTUVTb3VaM0poYldWbGJtdHZiM1JoCkxtbHVNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DQVE4QU1JSUJDZ0tDQVFFQXI3NDZsd2JORk00eW9paC8KU2ZsNzduU0Nlc0xoWGg5Mk1VOWJPcitnQmlST20zUkRtRHBrMXF1bWJqaS9qWXFrVytGT3V6VU1rQjRKWmdUNApEYXpKbEV0cm1qUlNBd1FzZ29xdjJhMm8rd1hYUjhzMURFTmxQUWtxNDhYakt3NDRsT052cE1Sc2VRZENhUzZXCmFrV3psSW1BcittbmhIL3VSTS9TdFlYL1hRaXlqQ011RFY2NzhWOWdQQ2lZQW55NHdsRXBHQzVkOS9nc3NLNEYKcHFxZzczNGJrWDZTYU1CT05pUlMxR3Q5K3lwbUxaSkh4bTdsMFFkYmtWRkI5WkZINVZsK2JlWEpNZEpndmVmUApvVmFPYXB6WTAvSHBCWHpZZjVocVhEbHM4UTlIbnRBY3R6bkUrc1NPT1FoOTBqZjk2NnBJN3RXVFNwTENzb3gwCmx3bnFsUUlEQVFBQm80SURtakNDQTVZd0h3WURWUjBqQkJnd0ZvQVVkSVdBd0diSDN6ZmV6NzBwTjZvREhiN3QKelJjd0hRWURWUjBPQkJZRUZPY0RpeGhCenpaL1FFZXk1ZEJ0eDBKVTlxK3RNQzBHQTFVZEVRUW1NQ1NDRVNvdQpaM0poYldWbGJtdHZiM1JoTG1sdWdnOW5jbUZ0WldWdWEyOXZkR0V1YVc0d0RnWURWUjBQQVFIL0JBUURBZ1dnCk1CMEdBMVVkSlFRV01CUUdDQ3NHQVFVRkJ3TUJCZ2dyQmdFRkJRY0RBakNCbndZRFZSMGZCSUdYTUlHVU1FaWcKUnFCRWhrSm9kSFJ3T2k4dlkzSnNNeTVrYVdkcFkyVnlkQzVqYjIwdlJHbG5hVU5sY25SSGJHOWlZV3hITWxSTQpVMUpUUVZOSVFUSTFOakl3TWpCRFFURXRNUzVqY213d1NLQkdvRVNHUW1oMGRIQTZMeTlqY213MExtUnBaMmxqClpYSjBMbU52YlM5RWFXZHBRMlZ5ZEVkc2IySmhiRWN5VkV4VFVsTkJVMGhCTWpVMk1qQXlNRU5CTVMweExtTnkKYkRBK0JnTlZIU0FFTnpBMU1ETUdCbWVCREFFQ0FqQXBNQ2NHQ0NzR0FRVUZCd0lCRmh0b2RIUndPaTh2ZDNkMwpMbVJwWjJsalpYSjBMbU52YlM5RFVGTXdnWWNHQ0NzR0FRVUZCd0VCQkhzd2VUQWtCZ2dyQmdFRkJRY3dBWVlZCmFIUjBjRG92TDI5amMzQXVaR2xuYVdObGNuUXVZMjl0TUZFR0NDc0dBUVVGQnpBQ2hrVm9kSFJ3T2k4dlkyRmoKWlhKMGN5NWthV2RwWTJWeWRDNWpiMjB2UkdsbmFVTmxjblJIYkc5aVlXeEhNbFJNVTFKVFFWTklRVEkxTmpJdwpNakJEUVRFdE1TNWpjblF3Q1FZRFZSMFRCQUl3QURDQ0FYMEdDaXNHQVFRQjFua0NCQUlFZ2dGdEJJSUJhUUZuCkFIWUE3czNRWk5YYkdzN0ZYTGVkdE0wVG9qS0hSbnk4N043RFVVaFpSbkVmdFpzQUFBR0tIVDJQdWdBQUJBTUEKUnpCRkFpRUF0NXBCbXhxc1h6YnVTZ1hZL2g2dzk4TjFjL0dJdFFlM1BVNHFEcUtmQlJvQ0lHcmtWOGpvci91cwpPTStpRmd4QVJzU29hb05pQms4NHRQM3QrUkUwcnZqR0FIWUFTTERqYTlxbVJ6UVA1V29DK3AwdzZ4eFNBY3RXCjNTeUIyYnUvcXpuWWhITUFBQUdLSFQyUDdnQUFCQU1BUnpCRkFpQktFaFJUcHBwQWRzN1QyTS80T0g4RTZ5UDUKdHovaWtzQy9VMzhYVGdVM1dBSWhBSzhLckhlYkZnMS80UkdwdVRjUFVRdHFLRXlVYUJkTWs1amxVdWdFZ09DUQpBSFVBMnJhL2F6KzF0aUtmbThLN1hHdm9jSkZ4Ykx0UmhJVTB2YVE5TUVqWCs2c0FBQUdLSFQyUG5nQUFCQU1BClJqQkVBaUJmZnBaZ2dCejgwTmoycHZBcFZEVVpKdE5KYmN3M2hPZm9sRnlCakxXR2pnSWdYWnBJWFdPbEtoN1MKQ1JZY1VwR29OU1dHczY3RExmU3h4amttWGxncGZid3dEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBR1BGc0JuQwpFUGZvZUlMQU1sUnNXOHBSYS9XUncyUG5NcTRmUmZYZm1LUTB5QXcvSEtsRC8xM0xXa2dSSk43ZFVLM08xTE5uCjBiTm1IU3dTWXN1bVAyMm1RcXMzUlkrWWhpZXVtYnJrckxTNHVYSDJQb3dwdllIRUNLajdUSlVFbjA5MnBSTFQKUkJuRjd3MEFRMTlTRGxsNE4zQTJEc0ZjZTFxK0puT0czOWNwelptU1piV0IwcGlCSUZoNE8yZ2VYblEyWWF2MQpkZnFDb3RGektsM2UycHUycTNnUnBWM0tRa2prTlU5ZjlScy9HTkxlSlpnTVFrUzFyLzVFak1Pd1JLQVFkZjBwCkZuckVyd1kyZEZPbzNWVFRodE5DdkliZGZPUmlkdUloNEptcU1NbEh6WWtSRTM0V0FkUzhqZ0pKTWFpb3RiTHUKQXVwRnhRV2UrSHJRWXRNPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg=="
+  tlsKey: "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb2dJQkFBS0NBUUVBcjc0Nmx3Yk5GTTR5b2loL1NmbDc3blNDZXNMaFhoOTJNVTliT3IrZ0JpUk9tM1JECm1EcGsxcXVtYmppL2pZcWtXK0ZPdXpVTWtCNEpaZ1Q0RGF6SmxFdHJtalJTQXdRc2dvcXYyYTJvK3dYWFI4czEKREVObFBRa3E0OFhqS3c0NGxPTnZwTVJzZVFkQ2FTNldha1d6bEltQXIrbW5oSC91Uk0vU3RZWC9YUWl5akNNdQpEVjY3OFY5Z1BDaVlBbnk0d2xFcEdDNWQ5L2dzc0s0RnBxcWc3MzRia1g2U2FNQk9OaVJTMUd0OSt5cG1MWkpICnhtN2wwUWRia1ZGQjlaRkg1VmwrYmVYSk1kSmd2ZWZQb1ZhT2FwelkwL0hwQlh6WWY1aHFYRGxzOFE5SG50QWMKdHpuRStzU09PUWg5MGpmOTY2cEk3dFdUU3BMQ3NveDBsd25xbFFJREFRQUJBb0lCQURUMWFTaDd0eTh1MTlrLwp4T1BnMTNUTERVcTdFVGpRMkVnUnR0Y2tTYSt3SHpQL1BDTlNiWEszTlNiLzJORnBWeEFNL0RHejBiNVlIdExzCmFtZU1pdzR5RUJIZTlGdk9WUzlkWlpKK0gyN05tc3NhdERpbTBvb3JDZzZyWWtKbVBheTRRTHR4S1pMckdoc2kKRzllWWUzNG1WVzR0UmZyS3BsMThGdTMybkRaSFdkU1V6M1VjYVpFUXpGVUh4MDlNTG9HWDVXYUFuanZPWXFkMQp1SGYyU3dJcy9zc0J1M0NJUUJhZmJRZ1h6REtxT1Bmcm0zV0JLNEU1RkRDRkVBRWtuUHRUazRUYmFGWWsrRGtkClBvOGVxcldRQ0tLYW5va3lSVWhxWUtYeVRseEVweGxGa3dYbmZWeHlpb2NRVHRyNnptQkJtS0tIeHM1SmhwVW0KVGVpcWNWMENnWUVBME5sbXAwdE1CbkNDMlhxbEx3VlNWTTc4V3c3WmRmVVFkaGY5cVVpaU00TzR5eVZnTWRiZApLZ3hFMlpDNC83Nm9nTkV2T1c5OHkrNmxIR2hqR2p0NGRQV2U0M01TZ2VIam5UcjNqL3NzaUE3OXoyMFAyM1NRCmZMWHRINXZ3T3NmbnkwOUc2Q1djbURwM3ovL09yeDd0NkxvUFkzMGZmRmJlTi9qWm0yMW1BZXNDZ1lFQTEydHUKOGJvbmtmUVlUaHg0bFBVVlhoVFNWZVNscEN3UkM1aEJtOHcrcHBTUWMrYXpMdHJFZWZwbzd6ZldybCt1dzdpTApUTnR4TEpXWkpycjlrdkJKTXZiN0ZYSVI2V2RHUlIvT2lYUXdxZmhLb2xjZCtrZXZ4eGpQaU9wNjVCRHRRL011ClcrclVWeTNJcXFldTFlZGtDdHlZbmNKSU1Bd0JoMmxBOGNkNEpYOENnWUI1b2FOL1d3THozU0xYdGUzdDdKTisKZ08zSHVtWTdwSFhwMFI4U01CTUhIWGZLR0FKbUJGVFo0RHRZMmtoajZZNEpOOHJoRUdVRi8vNTVCUEp5bktBUwp2ZG5EYllraHk0VGNWVE5JejJlbjlkTXJzc0RCZHFtUGVBU1puQi9VbkFnTENDaXJtdndRVER6ckRuZzQxVEtKCmo1TFd4bEJJQWU5NWVaeUNRTHhmOFFLQmdFZUFnR1c1elZLVHU5R0pmN2lwbExzU25ESW9YNWFiamRqVVk4cUwKdzZ2VkdoRnVYTUZMbWZXRzJYZTFpQXQrOU9wQUFmU3p6ZC9uazlzWUsveXV4dzBrajNpeDBTSXd4bEZCV25PagpYbGU4YzBGcE95a016RnFBY0xwWVlndjdWbFc4alFHemMyR3diNis5VXJuclFQaWQrZ1k3SzJ6UFAxNnI0QU9nCm1zK1BBb0dBUDRhTVRYTGFWUnM1UXlReE50bldwUEE0R0gxTWRPK3hwT0l2cEhrUFNUNFljTFRENmtzY0FsT3MKakc1Szd2Ui83TmhEVXZJT21vSy9WU0lZNGZOWHJpZ3dpNmtxaVFKaVZ2Q1lKZFU2cmhNZHM5d3Q4SERQYlMvcApadng5bmxHTU03MWlqVzNxZkVyRUZsZGg4ZTMzREU4MGhnQlhWKy8vTTJ4NmxQeXIvc1E9Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg=="   
+  
+openshift:
+  cluster: true
+
+# parameters for configmap
+dburlappzilloncb: "jdbc:postgresql://172.16.38.47:5455/grameenkoota?currentSchema=public"
+dburlgrameenkoota: "jdbc:postgresql://172.16.38.47:5455/grameenkoota?currentSchema=public"
+driverClassName: "org.postgresql.Driver"

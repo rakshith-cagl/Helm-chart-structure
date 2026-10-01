@@ -1,0 +1,454 @@
+pipeline {
+    parameters {
+        choice(name: 'ARTIFACTORY_TYPE', choices: ['jfrog'], description: 'Select Artifactory Type')
+        choice(name: 'JFROG_ARTIFACTORY_URL', choices: ['artifactory.appzillon.com/cagldocker', 'artifactory.appzillon.com/cagldocker-pt'], description: 'JFrog Artifactory URL')
+        choice(name: 'ENV', choices: ['SIT', 'SIT_MOB', 'PT', 'TEST', 'CLOUD', 'CLOUD_HTTPS', 'LOCAL'], description: 'Environment')
+        choice(name: 'PIPELINE_BRANCH', choices: ['dev', 'pt'], description: 'Source code branch')
+        choice(name: 'SOURCE_BRANCH', choices: ['master', 'main'], description: 'Source code branch')
+        choice(name: 'DB_TYPE', choices: ['postgresql'], description: 'Select the Database type')  
+        choice(name: 'SERVER_DEBUG_LEVEL', choices: ['DEBUG','RELEASE'], description: 'SERVER_DEBUG_LEVEL')
+        choice(name: 'LOG_LEVEL', choices: ['DEBUG','INFO', 'WARNING', 'ERROR', 'FATAL', 'NONE'], description: 'Logging level')
+        //choice(name: 'APP_ID', choices: ['APZCBO'], description: 'Select APPID of the Project')
+        string defaultValue: 'V1.0.0', description: 'Tag to build', name: 'TAG', trim: false
+        string defaultValue: '8080', description: 'Port', name: 'Port', trim: false
+        string defaultValue: '/opt/appzillon/logs', description: '', name: 'LOG_PATH', trim: false
+        string defaultValue: 'AppzillonServer', description: 'context root', name: 'APP_CONTEXT', trim: false
+        string defaultValue: 'AppzillonServer', description: 'Server war name', name: 'SERVER_WAR_NAME', trim: false
+        string defaultValue: 'UnifiedApp', description: 'Web war name', name: 'BASE_APP_NAME', trim: false
+        choice(name: 'DOCKER_APP_SERVER_NAME', choices: ['apz-unifiedapp-server'], description: 'Select Docker server app name')
+        string name: 'BUILD_SERVER_TAG', defaultValue: 'v1', description: 'Docker server image tag', trim: true
+        choice(name: 'SCANNING_STAGE', choices: ['Yes', 'No'], description: 'Execute the scanning stages?')
+    }
+    
+    environment {
+        REGISTRY_URL = getRegistryUrl(env.ARTIFACTORY_TYPE, env.JFROG_ARTIFACTORY_URL)
+        REGISTRY = getRegistry(env.ARTIFACTORY_TYPE, env.JFROG_ARTIFACTORY_URL)
+        REGISTRY_CRED=getRegistryCred(env.ARTIFACTORY_TYPE)
+        DOCKER_IMAGE = ''
+        BREAK_PIPELINE = 'No'
+    }
+
+    agent any
+    tools {
+        maven 'Maven 3.8.5'
+        jdk 'jdk8'
+    }
+
+    options {
+       timeout(time: 60, unit: 'MINUTES')  // Abort whole pipeline after 1 hour
+    }
+
+    stages {
+	    stage('Clean workspace'){
+            steps{
+                cleanWs()
+            }
+		}
+        
+        stage ('Print Variables') {
+            steps {
+                script{
+                    if (isUnix()){
+                        echo 'Print Variables stage : Linux'
+                        echo "Java Path : $PATH \n Maven Path : $M2_HOME \n Jenkins code Workspace : $WORKSPACE \n System Path : ${env.WORKSPACE}"
+                        echo  'System path : ${System.DefaultWorkingDirectory}'
+                        
+                    }
+                    else{
+                        bat 'echo "Print Variables stage : Windows"'
+                        bat 'echo "Java Path : " %PATH% & echo "Maven Path : "%M2_HOME% & echo "Jenkins code Workspace : "%WORKSPACE%'
+                    }
+                }
+            }
+        }
+	
+	    stage('CD Code CheckOut') {
+            steps {
+                    git branch: "${PIPELINE_BRANCH}",
+                    credentialsId: 'jenkinscicd',
+                    url: 'http://192.168.2.6:8009/gk-unified-app/pipeline.git'
+                }
+		}
+
+        stage('Git Code CheckOut') {
+            steps {
+                sh 'mkdir -p app_sources'
+                dir("app_sources")
+                {
+                    
+                    checkout scm: [$class: 'GitSCM', userRemoteConfigs: [[url: 'http://192.168.2.6:8009/gk-unified-app/apz-apps-gk-unified.git', credentialsId: 'jenkinscicd' ]], branches: [[name: 'refs/tags/${TAG}']]], poll: false
+                    echo "Building $TAG"
+                }
+            }
+        } 
+        
+        stage ('Platform code CheckOut') {
+            steps {
+                sh 'mkdir -p appzillon_sources'
+                dir("appzillon_sources")
+                {
+                    git branch: "${SOURCE_BRANCH}",
+                    credentialsId: 'jenkinscicd',
+                    url: 'http://192.168.2.6:8009/gk-unified-app/common-ci.git'
+                }
+                sh 'cp -r $WORKSPACE' + '"/app_sources/apz_app_sources/MicroApp" $WORKSPACE' + '"/app_sources/apz_app_sources/UnifiedApp/"'
+            }
+        } 
+    
+        stage ('Server War - Property file update') {
+            steps {
+                sh '''
+                        SERVERPREFFILE=$WORKSPACE/app_sources/apz_app_sources/UnifiedApp/UnifiedApp/serverpreferences.apzsrvprefs
+                        echo "-------------------------Before Update -------------"
+                        cat $SERVERPREFFILE
+                        sed -i \'s#"logpath":"[^"]*"#"logpath":"\'$LOG_PATH\'"#\' $SERVERPREFFILE
+                        echo "-------------------------After update -----------------"
+                        cat $SERVERPREFFILE
+                    '''
+
+                sh '''
+                        BASE_APP_NAME="${BASE_APP_NAME}"
+                        SERVER_WAR_NAME="${SERVER_WAR_NAME}"
+                        APZILLON_BUILD_PATH="$WORKSPACE"
+                        BUILD_APP_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_Apps.json"
+                        BUILD_SERVER_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_Server.json"
+                        SERVER_DEBUG_LEVEL=$SERVER_DEBUG_LEVEL
+
+                        JSON_GEN_FILE=$WORKSPACE/app_sources/apz_app_sources/Properties.json
+
+                        echo "Before updation of the file content :"
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            echo "Updating properties.json file  details"
+                            sed -i 's#"BaseAppName": "[^"]*"#"BaseAppName": "'$BASE_APP_NAME'"#' $JSON_GEN_FILE
+                            sed -i 's#"ServerWarName": "[^"]*"#"ServerWarName": "'$SERVER_WAR_NAME'"#' $JSON_GEN_FILE
+                            sed -i 's#"AppzillonBuildPath": "[^"]*"#"AppzillonBuildPath": "'$APZILLON_BUILD_PATH'"#' $JSON_GEN_FILE
+                            sed -i 's#"BuildAppPath": "[^"]*"#"BuildAppPath": "'$BUILD_APP_PATH'"#' $JSON_GEN_FILE
+                            sed -i 's#"BuildServerPath": "[^"]*"#"BuildServerPath": "'$BUILD_SERVER_PATH'"#' $JSON_GEN_FILE
+                            sed -i 's#"ServerDebugLevel": "[^"]*"#"ServerDebugLevel": "'$SERVER_DEBUG_LEVEL'"#' $JSON_GEN_FILE
+                            
+                            echo "Updated File content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                        SERVERBASEAPPS="[{'name':'UnifiedApp','appId':'APZCBO'}]"
+                        cd $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/lib \n \
+                        java -jar jsonGenerator-0.0.1.jar $WORKSPACE/app_sources/apz_app_sources $ENV $SERVER_DEBUG_LEVEL "SERVER" $SERVERBASEAPPS $WORKSPACE/app_sources/apz_app_sources
+                
+                    '''
+            
+                sh '''
+                        echo "Updating BuildParams_Server.json"
+                        IP_PORT="http://${DOCKER_APP_SERVER_NAME}:${Port}/${APP_CONTEXT}/Appzillon"
+                        BUILD_FOLDER="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/"
+                        APPS_FOLDER="$WORKSPACE/app_sources/apz_app_sources/UnifiedApp/"
+                        JSON_GEN_FILE=$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_Server.json
+                        echo "Before updation of the BuildParams_Server.json file content : "
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            sed -i '/"serverurl"/c\\    \"serverurl": \"'$IP_PORT'\",' $JSON_GEN_FILE
+                            sed -i '/"buildfolder"/c\\  \"buildfolder": \"'$BUILD_FOLDER'\",' $JSON_GEN_FILE
+                            sed -i '/"logpath"/c\\    \"logpath": \"'$LOG_PATH'\",' $JSON_GEN_FILE
+                            sed -i '/"logginglevel"/c\\    \"logginglevel": \"'$LOG_LEVEL'\",' $JSON_GEN_FILE
+                            echo "Updated BuildParams_Server.json file content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                    '''
+            
+                sh '''
+                        echo "Updating BuildParams_CI.json"
+                        CUSTOM_WIDGET_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources"
+                        THEME_MANAGER_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources"
+
+                        JSON_GEN_FILE=$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences/BuildParams_CI.json
+
+                        echo "Before updation of the BuildParams_CI.json file content : "
+                        cat $JSON_GEN_FILE
+
+                        if [ -e "$JSON_GEN_FILE" ]
+                        then
+                            sed -i \'s#"customwidgetspath": "[^"]*"#"customwidgetspath": "\'$CUSTOM_WIDGET_PATH\'"#\' $JSON_GEN_FILE
+                            sed -i \'s#"thememanagerpath": "[^"]*"#"thememanagerpath": "\'$THEME_MANAGER_PATH\'"#\' $JSON_GEN_FILE
+
+                            echo "Updated BuildParamas_CI.json file content:"
+                            cat $JSON_GEN_FILE
+                        fi
+                    '''
+                }   
+        }
+
+        stage ('Building Server War') {
+            steps {
+                script{
+                    if(isUnix()){
+                        echo 'Copy latest theme'
+                        sh 'cp -a $WORKSPACE/app_sources/apz_app_sources/Theme/* $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources/ThemeManager/thememanager/themes'
+                        sh 'cp -a $WORKSPACE/app_sources/apz_app_sources/Fonts/* $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/Resources/ThemeManager/thememanager/fonts'
+                        echo 'Build stage : Linux'
+                        sh 'cd $WORKSPACE' + '"/appzillon_sources/apz_ci_config/Appzillon/lib" && java -jar appzillonstudio-commandbuild-ci.jar $WORKSPACE'+'"/appzillon_sources/apz_ci_config/Appzillon/Bin/Preferences"'
+                    }
+                    else{
+
+                    }  
+                }
+            }
+        }
+
+        stage('Remove Existing Docker Image') {
+            steps {
+                script {
+                    echo 'Removing the existing Docker image'
+                    sh "docker rmi -f ${REGISTRY}/${DOCKER_APP_SERVER_NAME}:${BUILD_SERVER_TAG}"
+                }
+            }
+        }
+
+        stage('Moving and compressing files required to build docker image') {
+            steps {
+                script {
+                    echo 'Copy required files to the Appzillon server war path'
+                    sh '''
+                        SERVER_WAR_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server"
+                        cp -dRf $WORKSPACE/app_sources/software_config_files/server/** $SERVER_WAR_PATH
+                        cp -dRf $WORKSPACE/app_sources/software_config_files/common/prometheus $SERVER_WAR_PATH
+                        cp -f $WORKSPACE/app_sources/software_config_files/jws/** $SERVER_WAR_PATH
+                        if [ ${DB_TYPE} = "postgresql" ]; then
+                            cp -f $WORKSPACE/app_sources/software_config_files/common/postgresql-42.7.3.jar $SERVER_WAR_PATH   
+                        fi
+                        cd $SERVER_WAR_PATH
+                        tar -czvf ${DOCKER_APP_SERVER_NAME}-docker.tar.gz *
+                    '''
+                }
+            }
+        }
+        
+        stage('Building Docker Server Image') {
+            steps {
+                script{
+                    echo 'Building Docker Image'
+                    sh '''
+                        SERVER_WAR_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server"
+                        docker build -t ${REGISTRY}/${DOCKER_APP_SERVER_NAME}:${BUILD_SERVER_TAG} --build-arg WAR_NAME=${SERVER_WAR_NAME}.war -f ${SERVER_WAR_PATH}/Dockerfile-server ${SERVER_WAR_PATH}
+                    '''
+                }
+            }
+        }
+
+        stage ('Artifactory Specification') {
+            steps {
+                rtServer (
+                    id: "Artifactory",
+                    url: 'https://artifactory.appzillon.com/artifactory/',
+                    credentialsId: 'jfrog-push-cred',
+                    bypassProxy: true,
+                    timeout: 300
+                )
+            }
+        }
+        
+        /*stage('Check for High and Critical Vulnerabilities in the Docker image') {
+            when {
+                expression { BREAK_PIPELINE == 'Yes' }
+            }
+            steps {
+                script {
+                    echo "Checking for high and critical vulnerabilities in the Docker image"
+                    trivyExitCode = sh(script: '''
+                        BUILD=${REGISTRY}/${DOCKER_APP_SERVER_NAME}:${BUILD_SERVER_TAG}
+                        docker run -v /var/run/docker.sock:/var/run/docker.sock -v /home/jenkins/.cache/trivy:/root/.cache/trivy aquasec/trivy image --skip-db-update --skip-java-db-update --timeout 20m --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL --scanners vuln $BUILD
+                    ''', returnStatus: true)
+                    if (trivyExitCode != 0) {
+                        error "High or critical vulnerabilities found in the Docker image. Pipeline has been aborted."
+                    } 
+                    else {
+                        echo "No high or critical vulnerabilities have been found in the Docker image. Continuing with the build."
+                    }
+                }
+            }
+        }*/
+
+        stage('Push Server Image') {
+            steps{
+                script {
+                    docker.withRegistry(REGISTRY_URL, REGISTRY_CRED) {
+                        sh 'docker push ${REGISTRY}/${DOCKER_APP_SERVER_NAME}:${BUILD_SERVER_TAG}'
+                    }
+                }
+            }
+        }
+
+        stage('Moving and compressing helm chart and config map'){
+            steps{
+                script{
+                    sh '''
+                        SERVER_WAR_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server/Properties/${SERVER_WAR_NAME}"
+                        rm -rf ${SERVER_WAR_PATH}/Database
+                        rm -rf ${SERVER_WAR_PATH}/${APP_ID}/Database
+                        
+                        SOURCE_PATH=$WORKSPACE/build-deploy/cd/unifiedapp/server/${DOCKER_APP_SERVER_NAME}
+                        HELM_PATH=$WORKSPACE/build-deploy/cd/unifiedapp/server
+                        PROPERTIES_PATH="$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server"
+                        cp -R ${PROPERTIES_PATH}/Properties $SOURCE_PATH
+                        rm -rf ${PROPERTIES_PATH}/Properties
+                        cd $SOURCE_PATH/Properties
+                        mkdir custom
+                        cd custom
+                        cp $WORKSPACE/app_sources/apz_java_customcode/Properties/* .
+                        cd $HELM_PATH
+                        tar -czvf ${DOCKER_APP_SERVER_NAME}.tar.gz ${DOCKER_APP_SERVER_NAME}
+                    '''
+                }
+            }
+        }
+
+        stage('Uploading the helm chart and config map into JFrog repo') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE/build-deploy/cd/unifiedapp/server"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*.tar.gz",
+                                    "target": "${targetRepository}/${DOCKER_APP_SERVER_NAME}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }
+
+        /*stage('Uploading the files required to build docker image into JFrog repo') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*.tar.gz",
+                                    "target": "${targetRepository}/${DOCKER_APP_SERVER_NAME}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }*/
+
+        stage('Evaluate Scan Conditions') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' }
+            }
+            steps {
+                script {
+                    def hourIST = sh(script: "TZ='Asia/Kolkata' date +%H", returnStdout: true).trim().toInteger()
+                    def currentTime = sh(script: "TZ='Asia/Kolkata' date", returnStdout: true).trim()
+
+                    if (hourIST >= 20 || hourIST < 10) {
+                        echo "Within allowed scan time (8 PM to 10 AM IST). Proceeding with scan. Current time: ${currentTime}"
+                        env.ALLOW_SCAN = 'true'
+                    } else {
+                        echo "Outside allowed scan time (8 PM to 10 AM IST). Skipping dependency and sonar scan stage. Current time: ${currentTime}"
+                        env.ALLOW_SCAN = 'false'
+                    }
+                }
+            }
+        }
+
+        stage('depscan-track') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' && env.ALLOW_SCAN == 'true' }
+            }
+            tools {
+                nodejs 'nodejs_22.21.1'
+            }
+            steps{
+                sh 'FETCH_LICENSE=true /home/jenkins/.nvm/versions/node/v22.21.1/bin/cdxgen -t java $WORKSPACE/appzillon_sources/apz_ci_config/Appzillon/bin/Server/*.war --print --server-url=http://192.168.2.43:8082 --api-key=odt_tSo4oREdYNRrBx8TBpEPZ8bQdm1yTCGM --parent-project-id=7ea41c8f-d28d-4965-9eb2-b5de7f6dc502 --project-version=3.37.0 --project-classifier=Application --project-name=CAGL_${SERVER_WAR_NAME}'
+            }
+        }
+
+        stage ('Scan Server Image') {
+            when {
+                expression { params.SCANNING_STAGE == 'Yes' && env.ALLOW_SCAN == 'true' }
+            }
+            steps {
+                sh '''
+                    BUILD=${REGISTRY}/${DOCKER_APP_SERVER_NAME}:${BUILD_SERVER_TAG}
+                    REPORT=$(echo ${DOCKER_APP_SERVER_NAME} | sed 's/apz/cagl/g')
+                    docker run -v /var/run/docker.sock:/var/run/docker.sock -v /home/jenkins/.cache/trivy:/root/.cache/trivy aquasec/trivy image --skip-db-update --skip-java-db-update --timeout 20m --ignore-unfixed --scanners vuln $BUILD |tee $REPORT-vulnerabilities.md
+                    
+                    echo "Get the current date"
+                    DATE=$(date)
+                    echo $DATE
+                    
+                    echo "Prepend the date to the trivy report"
+                    sed -i "1s/^/Report generated at: ${DATE}\\n/" $REPORT-vulnerabilities.md
+                '''
+            }
+        }
+
+        /*stage('Uploading the Trivy Report') {
+            steps {
+                script {
+                    def FilePath = "$WORKSPACE"
+                    def targetRepository = 'cagl'
+                    rtUpload (
+                        serverId: 'Artifactory',
+                        spec: """{
+                            "files": [
+                                {
+                                    "pattern": "${FilePath}/*-vulnerabilities.md",
+                                    "target": "${targetRepository}/${DOCKER_APP_SERVER_NAME}/"
+                                }
+                            ]
+                        }"""
+                    )
+                }
+            }
+        }*/
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}
+
+def getRegistryUrl(artifactory, JfrogArtifactoryUrl) {
+    if ("jfrog".equals(artifactory)) {
+        return "https://" + JfrogArtifactoryUrl;
+    } else if ("harbor".equals(artifactory)) {
+        return "https://harbor-platform.apzplatforms.com";
+    } else {
+        return "https://artifactory.appzillon.com:443";
+    }
+}
+
+def getRegistry(artifactory, JfrogArtifactoryUrl) {
+    if ("jfrog".equals(artifactory)) {
+        return JfrogArtifactoryUrl;
+    } else if ("harbor".equals(artifactory)) {
+        return "harbor-platform.apzplatforms.com/appzillon-develop";
+    } else {
+        return "artifactory.appzillon.com:443/docker-dev-local";
+    }
+}
+
+def getRegistryCred(artifactory) {
+    if("jfrog".equals(artifactory)) {
+        return "jfrog-push-cred";
+    } else if ("harbor".equals(artifactory)) {
+        return "harbor-creds";
+    } else {
+        return "jfrog-creds";
+    }
+}
