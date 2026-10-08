@@ -2,14 +2,14 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "apz-ms-appzillonbanking-kyc.fullname" . }}
+  name: {{ include "apz-ms-appzillonbanking-cm.fullname" . }}
   labels:
-    {{- include "apz-ms-appzillonbanking-kyc.labels" . | nindent 4 }}
+    {{- include "apz-ms-appzillonbanking-cm.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "apz-ms-appzillonbanking-kyc.fullname" . }}
+    name: {{ include "apz-ms-appzillonbanking-cm.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
