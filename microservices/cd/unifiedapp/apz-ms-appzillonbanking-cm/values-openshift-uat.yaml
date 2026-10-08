@@ -72,7 +72,7 @@ volumeMounts:
 enviroment: uat
 
 ports:
-  containerPort: 9297
+  containerPort: 9296
   protocol: TCP
 
 liveness:
