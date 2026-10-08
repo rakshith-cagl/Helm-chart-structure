@@ -44,7 +44,7 @@ resources:
 enviroment: sit
 
 ports:
-  containerPort: 9297
+  containerPort: 9296
   protocol: TCP
 
 nameSpace: maitri-unnathi-sit
