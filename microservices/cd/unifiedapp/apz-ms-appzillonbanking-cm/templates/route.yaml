@@ -1,9 +1,9 @@
-{{- $fullName := include "apz-ms-appzillonbanking-kyc.fullname" . -}}
+{{- $fullName := include "apz-ms-appzillonbanking-cm.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{ include "apz-ms-appzillonbanking-kyc.fullname" . }}
+  name: {{ include "apz-ms-appzillonbanking-cm.fullname" . }}
   namespace: {{ .Values.nameSpace }}
   annotations:
     haproxy.router.openshift.io/timeout: 300s
@@ -18,6 +18,6 @@ spec:
     targetPort: {{ .Values.service.port }}
   to:
     kind: Service
-    name: {{ include "apz-ms-appzillonbanking-kyc.fullname" . }}
+    name: {{ include "apz-ms-appzillonbanking-cm.fullname" . }}
     weight: 100
   wildcardPolicy: None
