@@ -4,12 +4,12 @@
 replicaCount: 1
 
 image:
-  repository: image-registry.openshift-image-registry.svc:5000/maitri-unnathi/apz-ms-appzillonbanking-cm
+  repository: image-registry.openshift-image-registry.svc:5000/customer-management/apz-ms-appzillonbanking-cm
   pullPolicy: Always
   tag: "v1"
 
 imagePullSecrets:
- - name: default-dockercfg-njfqp
+ - name: default-dockercfg-sjf96
 
 nameOverride: ""
 fullnameOverride: "apz-ms-appzillonbanking-cm"
@@ -38,13 +38,13 @@ ingress:
     haproxy.router.openshift.io/disable_cookies: 'true'
     haproxy.router.openshift.io/timeout: 300s
   hosts:
-    - host: apz-ms-appzillonbanking-cm-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+    - host: apz-ms-appzillonbanking-cm-customer-management.apps.ocpdr.corp.grameenkoota.org
       paths:
         - /appzillonbankingcm
   tls:
     - secretName: common-tls-secret-server
       hosts:
-        - apz-ms-appzillonbanking-cm-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+        - apz-ms-appzillonbanking-cm-customer-management.apps.ocpdr.corp.grameenkoota.org
 
 resources: 
    limits:
@@ -95,7 +95,7 @@ startup:
 
 terminationGracePeriodSeconds: 60
 
-nameSpace: maitri-unnathi
+nameSpace: customer-management
 contextPath: /appzillonbankingcm
 secretAppTag: common
 

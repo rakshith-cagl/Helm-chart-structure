@@ -5,13 +5,13 @@
 replicaCount: 1
 
 image:
-  repository: image-registry.openshift-image-registry.svc:5000/unifieduat/apz-unifiedapp-server
+  repository: image-registry.openshift-image-registry.svc:5000/customer-management/apz-unifiedapp-server
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "v1"
 
 imagePullSecrets:
- - name: default-dockercfg-9dvqx
+ - name: default-dockercfg-sjf96
 nameOverride: ""
 fullnameOverride: "apz-unifiedapp-server"
 
@@ -46,13 +46,13 @@ ingress:
   # kubernetes.io/ingress.class: nginx
   #   kubernetes.io/tls-acme: "true"
   hosts:
-    - host: apz-unifiedapp-server-unifieduat.apps.dcdevunifcls01.corp.grameenkoota.org 
+    - host: apz-unifiedapp-server-customer-management.apps.ocpdr.corp.grameenkoota.org 
       paths: 
         - /AppzillonServer/Appzillon
   tls:
     - secretName: common-tls-secret-server
       hosts:
-        - apz-unifiedapp-server-unifieduat.apps.dcdevunifcls01.corp.grameenkoota.org 
+        - apz-unifiedapp-server-customer-management.apps.ocpdr.corp.grameenkoota.org 
 
 mounts:
   - appid:
@@ -116,7 +116,7 @@ terminationGracePeriodSeconds: 60
 glowroot:
   enabled: false
 
-nameSpace: unifieduat
+nameSpace: customer-management
 contextPath: /AppzillonServer/Appzillon
 secretAppTag: common
 envMountPath: /opt/jws/tomcat/lib

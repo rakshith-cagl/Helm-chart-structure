@@ -5,13 +5,13 @@
 replicaCount: 1
 
 image:
-  repository: image-registry.openshift-image-registry.svc:5000/maitri-unnathi/apz-ms-appzillonbanking-collection
+  repository: image-registry.openshift-image-registry.svc:5000/customer-management/apz-ms-appzillonbanking-collection
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "v1"
 
 imagePullSecrets:
- - name: default-dockercfg-njfqp
+ - name: default-dockercfg-sjf96
 nameOverride: ""
 fullnameOverride: "apz-ms-appzillonbanking-collection"
 
@@ -46,14 +46,14 @@ ingress:
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: apz-ms-appzillonbanking-collection-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+    - host: apz-ms-appzillonbanking-collection-customer-management.apps.ocpdr.corp.grameenkoota.org
       paths:
         - /appzillonbankingcollection
         - /appzillonbankingcollection/application/collection/QRPaymentCB
   tls:
     - secretName: common-tls-secret-server
       hosts:
-        - apz-ms-appzillonbanking-collection-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+        - apz-ms-appzillonbanking-collection-customer-management.apps.ocpdr.corp.grameenkoota.org
 
 resources: 
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -101,7 +101,7 @@ startup:
 
 terminationGracePeriodSeconds: 60
 
-nameSpace: maitri-unnathi
+nameSpace: customer-management
 contextPath: /appzillonbankingcollection
 secretAppTag: common
 

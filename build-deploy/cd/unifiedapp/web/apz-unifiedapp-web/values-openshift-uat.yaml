@@ -5,13 +5,13 @@
 replicaCount: 1
 
 image:
-  repository: image-registry.openshift-image-registry.svc:5000/unifieduat/apz-unifiedapp-web
+  repository: image-registry.openshift-image-registry.svc:5000/customer-management/apz-unifiedapp-web
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "v1"
 
 imagePullSecrets:
- - name: default-dockercfg-9dvqx
+ - name: default-dockercfg-sjf96
 nameOverride: ""
 fullnameOverride: "apz-unifiedapp-web"
 
@@ -46,13 +46,13 @@ ingress:
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: apz-unifiedapp-web-unifieduat.apps.dcdevunifcls01.corp.grameenkoota.org 
+    - host: apz-unifiedapp-web-customer-management.apps.ocpdr.corp.grameenkoota.org 
       paths: 
         - /UnifiedApp
   tls: 
     - secretName: APZCBO-tls-secret-web
       hosts:
-        - apz-unifiedapp-web-unifieduat.apps.dcdevunifcls01.corp.grameenkoota.org 
+        - apz-unifiedapp-web-customer-management.apps.ocpdr.corp.grameenkoota.org 
 
 resources:
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -113,7 +113,7 @@ usersettingsPath: /var/app_volume/usersettings
 pvcUserSettingsName: nfs-usersettingspvc
 
 
-nameSpace: unifieduat
+nameSpace: customer-management
   
 APZCBO:
   publicPem: "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlHZk1BMEdDU3FHU0liM0RRRUJBUVVBQTRHTkFEQ0JpUUtCZ1FEUGlyOEIwSEhMZ284elY1RDNNNjBsdkQ0RwpuOFFSN0xPM1pjZHhDVTZNSUNqTGgzUUVUQXhrWnNpSFVXRFBmem1vM05kR0NFcWIwVDJCeUhzbXNLTDZaa2M4Ck5UQWJYVDZ3bVNIMXRITXVoNE9iRzhiaUVOeHBZN0l5TGk2M0FZUDhCbE1veXVBbzVhZUoyWDdkRGVBRWtPRmcKMndzTlZUcm56Sk5oQXNjNlZ3SURBUUFCCi0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo="
