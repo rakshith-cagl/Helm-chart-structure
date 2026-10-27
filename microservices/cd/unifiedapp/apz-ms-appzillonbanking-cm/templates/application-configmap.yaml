@@ -5,6 +5,7 @@ metadata:
   name: apz-ms-appzillonbanking-cm-application-configmap
 data:
 {{ ($.Files.Glob (printf "properties/application-%s.properties" $enviroment)).AsConfig | indent 2 }}
+{{ ($.Files.Glob (printf "properties/dmsAPI.properties" )).AsConfig | indent 2 }}
 {{ ($.Files.Glob (printf "properties/database-%s.properties" $enviroment)).AsConfig | indent 2 }}
 {{ ($.Files.Glob (printf "properties/logback-cm-%s.xml" $enviroment)).AsConfig | indent 2 }}
 {{ ($.Files.Glob (printf "properties/ExternalServiceURL-%s.json" $enviroment)).AsConfig | indent 2 }}
